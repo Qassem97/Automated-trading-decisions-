@@ -11,6 +11,7 @@ if __name__ == "__main__":
 
     loader = DataLoader(directory_path, processed_data_file)
     combined_data = loader.load_data()
+    print("Data preprocessed and done for training...")
 
     if not combined_data.empty:
         processor = DataProcessor(combined_data)
