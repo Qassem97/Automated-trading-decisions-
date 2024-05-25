@@ -1,31 +1,56 @@
-from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error
+import gym
+from stable_baselines3 import DQN, TD3  # DDQN can be handled via DQN
+from stable_baselines3.common.vec_env import DummyVecEnv
+
+from RDPGModel import RDPGModel, RDPGTrainer
+from stock_trading_env import StockTradingEnv
+
 
 class ModelTrainer:
-    def __init__(self, X_train, y_train):
-        self.X_train = X_train
-        self.y_train = y_train
-        self.models = {}
+    def __init__(self, data, tickers, sequence_length, learning_rate=0.0005, verbose=1):
+        self.data = data
+        self.tickers = tickers
+        self.sequence_length = sequence_length
+        self.learning_rate = learning_rate
+        self.verbose = verbose
 
-    def train_models(self):
-        # Linear Regression Model
-        lr = LinearRegression()
-        lr.fit(self.X_train, self.y_train)
-        self.models['linear_regression'] = lr
+    def train_ddqn_model(self, total_timesteps=10000):
+        try:
+            env = DummyVecEnv([lambda: StockTradingEnv(self.data, self.tickers, self.sequence_length)])
+            model = DQN('MlpPolicy', env, learning_rate=self.learning_rate, verbose=self.verbose)
+            model.learn(total_timesteps=total_timesteps)
+            return model
+        except Exception as e:
+            print(f"Failed to train DDQN model: {str(e)}")
+            return None
 
-        # Random Forest Model
-        rf = RandomForestRegressor(n_estimators=100, random_state=42)
-        rf.fit(self.X_train, self.y_train)
-        self.models['random_forest'] = rf
+    def train_td3_model(self, total_timesteps=10000):
+        try:
+            env = DummyVecEnv([lambda: StockTradingEnv(self.data, self.tickers, self.sequence_length)])
+            model = TD3('MlpPolicy', env, verbose=1)
+            model.learn(total_timesteps=total_timesteps)
+            return model
+        except Exception as e:
+            print(f"Failed to train TD3 model: {str(e)}")
+            return None
 
-        return self.models
+    def train_rdpg_model(self):
+        try:
+            env = StockTradingEnv(self.data, self.tickers, self.sequence_length)
+            input_dim = env.observation_space.shape[0]
 
-    def predict_and_evaluate(self, X_test, y_test):
-        results = {}
-        for name, model in self.models.items():
-            predictions = model.predict(X_test)
-            mse = mean_squared_error(y_test, predictions)
-            results[name] = mse
-            print(f"{name} MSE: {mse}")
-        return results
+            if isinstance(env.action_space, gym.spaces.Discrete):
+                output_dim = env.action_space.n  # Number of discrete actions
+            elif isinstance(env.action_space, gym.spaces.Box):
+                output_dim = env.action_space.shape[0]  # Dimensionality of the action vector
+            else:
+                raise NotImplementedError("Unsupported action space")
+
+            model = RDPGModel(input_dim, 50, output_dim)
+            target_model = RDPGModel(input_dim, 50, output_dim)
+            trainer = RDPGTrainer(env, model, target_model)
+            trainer.train()
+            return model if model.is_trained() else None
+        except Exception as e:
+            print(f"Failed to train RDPG model: {str(e)}")
+            return None

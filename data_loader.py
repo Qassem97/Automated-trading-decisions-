@@ -40,5 +40,3 @@ class DataLoader:
             return combined_data
         else:
             return pd.DataFrame()
-
-
