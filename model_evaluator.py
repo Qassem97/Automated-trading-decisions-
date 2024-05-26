@@ -32,11 +32,14 @@ class ModelEvaluator:
 
     def plot_results(self, ticker):
         data_ticker = self.data[self.data['Ticker'] == ticker]
-        plt.figure(figsize=(10, 6))
-        plt.plot(data_ticker['Date'], data_ticker['MA20'], label='20-day MA')
-        plt.plot(data_ticker['Date'], data_ticker['Close'], label='Close Price')
-        plt.title(f'20-Day Moving Average and Close Price for {ticker}')
-        plt.xlabel('Date')
-        plt.ylabel('Price')
-        plt.legend()
-        plt.show()
+        if data_ticker.empty:
+            print(f"No data available for ticker {ticker}")
+        else:
+            plt.figure(figsize=(10, 6))
+            plt.plot(data_ticker['Date'], data_ticker['MA20'], label='20-day MA')
+            plt.plot(data_ticker['Date'], data_ticker['Close'], label='Close Price')
+            plt.title(f'20-Day Moving Average and Close Price for {ticker}')
+            plt.xlabel('Date')
+            plt.ylabel('Price')
+            plt.legend()
+            plt.show()

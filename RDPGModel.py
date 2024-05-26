@@ -9,9 +9,9 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 class RDPGModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_size, hidden_dim, output_dim):
         super(RDPGModel, self).__init__()
-        self.lstm = nn.LSTM(input_dim, hidden_dim, batch_first=True)
+        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_dim, batch_first=True)
         self.fc = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, x, hidden_state):
@@ -21,7 +21,8 @@ class RDPGModel(nn.Module):
 
 
 class RDPGTrainer:
-    def __init__(self, env, model, target_model, buffer_size=10000, batch_size=64, gamma=0.99, lr=0.001, epsilon_start=1.0, epsilon_end=0.01, epsilon_decay=0.995):
+    def __init__(self, env, model, target_model, buffer_size=10000, batch_size=64, gamma=0.99, lr=0.001,
+                 epsilon_start=1.0, epsilon_end=0.01, epsilon_decay=0.995):
         self.env = env
         self.model = model
         self.target_model = target_model
@@ -46,32 +47,24 @@ class RDPGTrainer:
     def update_target_model(self):
         self.target_model.load_state_dict(self.model.state_dict())
 
-    def train(self, episodes=500):
+    def train(self, episodes=10):
         for episode in range(episodes):
             state = self.env.reset()
             hidden_state = (torch.zeros(1, 1, 50), torch.zeros(1, 1, 50))
             episode_reward = 0
-
-            for step in range(200):
+            while not self.env.done:
                 state_tensor = torch.FloatTensor(state).unsqueeze(0).unsqueeze(0)
-                q_values, hidden_state = self.model(state_tensor, hidden_state)
-                action = self.select_action(q_values)
-
+                action_values, hidden_state = self.model(state_tensor, hidden_state)
+                action = self.select_action(action_values)
                 next_state, reward, done, _ = self.env.step(action)
+
                 self.add_experience((state, action, reward, next_state, done))
-
-                if len(self.buffer) >= self.batch_size:
-                    self.update_model()
-
                 state = next_state
                 episode_reward += reward
-
                 if done:
                     break
 
             self.update_target_model()
-            self.epsilon = max(self.epsilon_end, self.epsilon_decay * self.epsilon)  # Decay epsilon
-            self.writer.add_scalar('Episode Reward', episode_reward, episode)
             print(f"Episode {episode + 1}/{episodes}, Reward: {episode_reward}")
 
     def select_action(self, q_values):
@@ -81,22 +74,26 @@ class RDPGTrainer:
             return torch.argmax(q_values).item()  # Best action
 
     def update_model(self):
+        if len(self.buffer) < self.batch_size:
+            return  # Ensure there's enough data to sample from
+
         states, actions, rewards, next_states, dones = self.sample_experience()
+        states = torch.FloatTensor(np.array(states)).unsqueeze(1)
+        next_states = torch.FloatTensor(np.array(next_states)).unsqueeze(1)
+        actions = torch.LongTensor(np.array(actions)).unsqueeze(1)
+        rewards = torch.FloatTensor(np.array(rewards)).unsqueeze(1)
+        dones = torch.FloatTensor(np.array(dones)).unsqueeze(1)
 
-        states_tensor = torch.FloatTensor(states)
-        next_states_tensor = torch.FloatTensor(next_states)
-        actions_tensor = torch.LongTensor(actions)
-        rewards_tensor = torch.FloatTensor(rewards)
-        dones_tensor = torch.FloatTensor(dones)
+        q_values, _ = self.model(states, None)
+        next_q_values, _ = self.target_model(next_states, None)
 
-        q_values, _ = self.model(states_tensor, None)
-        next_q_values, _ = self.target_model(next_states_tensor, None)
+        # Calculate target Q values
+        target_q_values = rewards + (self.gamma * next_q_values.max(dim=1)[0].unsqueeze(1) * (1 - dones))
 
-        target_q_values = rewards_tensor + (self.gamma * next_q_values.max(dim=1)[0] * (1 - dones_tensor))
+        # Gather the Q-values of the executed actions
+        current_q_values = q_values.gather(1, actions)
 
-        current_q_values = q_values.gather(1, actions_tensor.unsqueeze(1)).squeeze()
-
-        loss = self.loss_fn(current_q_values, target_q_values.detach())
+        loss = self.loss_fn(current_q_values.squeeze(), target_q_values.squeeze())
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()

@@ -8,7 +8,8 @@ from CNN import CNN
 
 class DataProcessor:
     def __init__(self, df):
-        self.df = df.reset_index(drop=True)  # Ensure the index is reset and does not interfere
+        #self.df = df.reset_index(drop=True)  # Ensure the index is reset and does not interfere
+        self.df = df
 
     def add_features(self):
         self.df['MA20'] = self.df['Close'].rolling(window=20).mean()
